@@ -155,25 +155,25 @@
     <div class="row" style="gap:12px; align-items:flex-end;">
       <div>
         <label style="font-size:10px; color:#888;">Dot Size</label><br>
-        <input type="range" id="dotSizeSlider" min="3" max="18" step="1" value="8" style="width:110px; accent-color:#00ff9f;">
-        <span id="dotSizeVal" style="font-size:10px;">8</span>
+        <input type="range" id="dotSizeSlider" min="4" max="22" step="1" value="12" style="width:110px; accent-color:#00ff9f;">
+        <span id="dotSizeVal" style="font-size:10px;">12</span>
       </div>
       <div>
         <label style="font-size:10px; color:#888;">Columns</label><br>
-        <input type="range" id="columnsSlider" min="1" max="7" step="1" value="3" style="width:90px; accent-color:#00ff9f;">
-        <span id="columnsVal" style="font-size:10px;">3</span>
+        <input type="range" id="columnsSlider" min="1" max="9" step="1" value="5" style="width:90px; accent-color:#00ff9f;">
+        <span id="columnsVal" style="font-size:10px;">5</span>
       </div>
       <div>
         <label style="font-size:10px; color:#888;">Brightness</label><br>
-        <input type="range" id="brightnessSlider" min="0.4" max="1.0" step="0.05" value="0.9" style="width:90px; accent-color:#00ff9f;">
-        <span id="brightnessVal" style="font-size:10px;">0.9</span>
+        <input type="range" id="brightnessSlider" min="0.5" max="1.0" step="0.05" value="1.0" style="width:90px; accent-color:#00ff9f;">
+        <span id="brightnessVal" style="font-size:10px;">1.0</span>
       </div>
     </div>
     
     <div class="info">
-      <b>POV Mode:</b> Wave the phone left ↔ right in a smooth arc.<br>
-      The app detects motion and shows vertical slices of dots. Persistence of vision makes the text appear in the air.<br>
-      <span style="color:#00aa66;">When still → cute Matrix rain fallback.</span><br>
+      <b>POV Mode:</b> Wave the phone left ↔ right in a smooth arc (or use Force POV + drag).<br>
+      Bright LED-style segments form the text via persistence of vision.<br>
+      <span style="color:#00aa66;">Still → Matrix rain. Drag left/right on screen to scrub through the text.</span><br>
       <span style="color:#ffaa00; font-size:9px;">Debug: rotGamma=<span id="debugRot">0</span> | delta=<span id="debugDelta">0</span></span>
     </div>
   </div>
@@ -181,6 +181,22 @@
   <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { alpha: true });
+    
+    // Polyfill for older browsers that lack roundRect
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (w < 2 * r) r = w / 2;
+        if (h < 2 * r) r = h / 2;
+        this.beginPath();
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath();
+        return this;
+      };
+    }
     
     let width = 0, height = 0;
     let dpr = 1;
@@ -276,134 +292,161 @@
     }
     
     // === TEXT TO BITMAP ===
+    // Precomputed binary columns of the text (array of arrays of 0/1)
+    let textColumns = [];   // textColumns[x][y] = 0 or 1
+    let ledRows = 24;        // number of vertical LED "segments"
+    
     function generateTextBitmap() {
       const input = document.getElementById('textInput').value.trim() || "HELLO";
       
-      // Create offscreen canvas for the text
+      // Create high-res offscreen canvas for clean sampling
       textCanvas = document.createElement('canvas');
-      textCtx = textCanvas.getContext('2d', { alpha: true });
+      textCtx = textCanvas.getContext('2d', { alpha: false });
       
-      // Make the text quite tall so it fills most of the phone height when swept
-      const targetHeight = Math.min(height * 0.85, 520);
-      const fontSizeText = Math.max(28, Math.floor(targetHeight / 2.8));
+      // Tall text that will fill most of the phone height
+      const targetHeight = Math.min(Math.floor(height * 0.78), 480);
+      const fontSizeText = Math.max(36, Math.floor(targetHeight / 2.1));
       
-      textCtx.font = `bold ${fontSizeText}px 'Courier New', 'Share Tech Mono', monospace`;
+      textCtx.font = `900 ${fontSizeText}px "Courier New", "Share Tech Mono", monospace`;
       textCtx.fillStyle = '#ffffff';
       textCtx.textBaseline = 'middle';
+      textCtx.textAlign = 'left';
       
-      // Measure total width needed
       const metrics = textCtx.measureText(input);
-      textWidth = Math.ceil(metrics.width) + 40; // padding
-      textHeight = Math.floor(targetHeight);
+      textWidth = Math.ceil(metrics.width) + 60;
+      textHeight = targetHeight;
       
       textCanvas.width = textWidth;
       textCanvas.height = textHeight;
       
-      // Re-apply font after resize
-      textCtx.font = `bold ${fontSizeText}px 'Courier New', 'Share Tech Mono', monospace`;
+      // Clear to black
+      textCtx.fillStyle = '#000000';
+      textCtx.fillRect(0, 0, textWidth, textHeight);
+      
+      // Draw very bold white text (draw multiple times for thickness)
+      textCtx.font = `900 ${fontSizeText}px "Courier New", "Share Tech Mono", monospace`;
       textCtx.fillStyle = '#ffffff';
       textCtx.textBaseline = 'middle';
+      textCtx.textAlign = 'left';
       
-      // Draw centered text
-      textCtx.fillText(input, 20, textHeight / 2);
+      // Multiple passes for thicker, more solid letters
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          textCtx.fillText(input, 30 + dx, textHeight / 2 + dy);
+        }
+      }
+      textCtx.fillText(input, 30, textHeight / 2); // center pass
+      
+      // === Precompute binary columns (much faster + cleaner than getImageData every frame) ===
+      textColumns = [];
+      ledRows = Math.max(16, Math.min(32, Math.floor(height / 18))); // adaptive LED rows
+      
+      const imageData = textCtx.getImageData(0, 0, textWidth, textHeight);
+      const data = imageData.data;
+      
+      for (let x = 0; x < textWidth; x++) {
+        const col = new Array(ledRows).fill(0);
+        for (let row = 0; row < ledRows; row++) {
+          // Sample a vertical band for this LED row
+          const yStart = Math.floor((row / ledRows) * textHeight);
+          const yEnd = Math.floor(((row + 1) / ledRows) * textHeight);
+          
+          let sum = 0;
+          let count = 0;
+          for (let y = yStart; y < yEnd; y++) {
+            const idx = (y * textWidth + x) * 4;
+            sum += data[idx]; // red channel
+            count++;
+          }
+          // Higher threshold = cleaner segments (less anti-alias noise)
+          col[row] = (sum / count) > 90 ? 1 : 0;
+        }
+        textColumns.push(col);
+      }
       
       hasTextBitmap = true;
       
-      // Auto switch to POV if we have good motion
       if (isMoving) {
         currentMode = 'pov';
         updateModeBadge();
       }
       
-      // Visual feedback
       const badge = document.getElementById('modeBadge');
-      badge.style.borderColor = '#ffff00';
-      setTimeout(() => {
-        if (badge) badge.style.borderColor = 'rgba(0,255,159,0.4)';
-      }, 900);
-    }
-    
-    // Get vertical slice of the text as array of brightness values (0 or 1)
-    function getTextColumn(columnX) {
-      if (!hasTextBitmap || !textCtx) return [];
-      
-      const sliceHeight = textHeight;
-      const scaleY = height / sliceHeight;
-      
-      // Sample every few pixels vertically for performance
-      const sampleStep = Math.max(2, Math.floor(4 / (dotSize / 6)));
-      const samples = [];
-      
-      for (let y = 0; y < sliceHeight; y += sampleStep) {
-        const pixel = textCtx.getImageData(Math.floor(columnX), y, 1, 1).data;
-        const brightness = (pixel[0] + pixel[1] + pixel[2]) / 3;
-        samples.push(brightness > 40 ? 1 : 0);
+      if (badge) {
+        badge.style.borderColor = '#ffff00';
+        setTimeout(() => { if (badge) badge.style.borderColor = 'rgba(0,255,159,0.4)'; }, 800);
       }
       
-      return samples;
+      console.log(`%c[POV] Generated "${input}" → ${textWidth}px wide, ${ledRows} LED rows`, 'color:#00ff9f');
     }
     
     function drawPOV() {
+      // Pure black
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, width, height);
       
-      if (!hasTextBitmap) {
-        // No text yet - show hint
+      if (!hasTextBitmap || textColumns.length === 0) {
         ctx.fillStyle = '#00aa66';
-        ctx.font = '14px monospace';
-        ctx.fillText("Enter text above and tap Generate", 30, height/2);
+        ctx.font = '15px monospace';
+        ctx.fillText("Enter text + Generate, then Force POV", 24, height / 2);
         return;
       }
       
-      // Map povProgress (0..1) to x position in text bitmap
-      const textX = Math.max(0, Math.min(textWidth - 1, Math.floor(povProgress * textWidth)));
+      // Current column in the text
+      const textX = Math.max(0, Math.min(textColumns.length - 1, Math.floor(povProgress * textColumns.length)));
       
       const centerX = width / 2;
-      const dot = parseFloat(document.getElementById('dotSizeSlider').value);
-      const cols = parseInt(document.getElementById('columnsSlider').value);
-      const bright = parseFloat(document.getElementById('brightnessSlider').value);
+      const dot = parseFloat(document.getElementById('dotSizeSlider').value) || 10;
+      const cols = parseInt(document.getElementById('columnsSlider').value) || 4;
+      const bright = parseFloat(document.getElementById('brightnessSlider').value) || 1.0;
       
       dotSize = dot;
       numColumns = cols;
       brightness = bright;
       
-      // Draw several vertical columns of dots for thickness
-      const startCol = Math.max(0, textX - Math.floor(numColumns / 2));
+      // Vertical spacing of the LED segments
+      const usableHeight = height * 0.82;
+      const topOffset = (height - usableHeight) / 2;
+      const rowHeight = usableHeight / ledRows;
       
-      for (let c = 0; c < numColumns; c++) {
-        const colX = startCol + c;
-        if (colX >= textWidth) continue;
+      // Draw several adjacent columns for a thicker "wand"
+      const halfCols = Math.floor(numColumns / 2);
+      
+      for (let c = -halfCols; c <= halfCols; c++) {
+        const colIdx = textX + c;
+        if (colIdx < 0 || colIdx >= textColumns.length) continue;
         
-        const columnData = getTextColumn(colX);
-        if (columnData.length === 0) continue;
+        const column = textColumns[colIdx];
+        const x = centerX + c * (dotSize * 0.95);
         
-        const offsetX = (c - Math.floor(numColumns / 2)) * (dotSize * 0.85);
-        const x = centerX + offsetX;
-        
-        const scale = height / textHeight;
-        
-        ctx.fillStyle = `rgba(0, 255, 159, ${brightness})`;
+        // Extremely bright color + strong glow
+        ctx.fillStyle = `rgba(0, 255, 140, ${Math.min(1, brightness + 0.15)})`;
         ctx.shadowColor = '#00ff9f';
-        ctx.shadowBlur = dotSize > 6 ? 4 : 2;
+        ctx.shadowBlur = Math.max(6, dotSize * 0.9);
         
-        for (let i = 0; i < columnData.length; i++) {
-          if (columnData[i] === 0) continue;
+        for (let row = 0; row < ledRows; row++) {
+          if (column[row] === 0) continue;
           
-          const y = (i * (dotSize * 0.92) * scale) + (height - textHeight * scale) / 2;
+          const y = topOffset + row * rowHeight + rowHeight / 2;
           
-          // Draw as circle (LED dot)
+          // Draw solid vertical segment (looks more like classic POV LEDs)
+          const segmentH = Math.max(dotSize * 0.75, rowHeight * 0.72);
+          
           ctx.beginPath();
-          ctx.arc(x, y, dotSize / 2, 0, Math.PI * 2);
+          // Rounded rectangle / capsule shape for each LED segment
+          const r = Math.min(dotSize / 2, segmentH / 2);
+          ctx.roundRect(x - dotSize / 2, y - segmentH / 2, dotSize, segmentH, r);
           ctx.fill();
         }
       }
       
-      // Subtle center guide line
-      ctx.strokeStyle = 'rgba(0,255,159,0.15)';
+      // Very subtle center guide
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0, 255, 159, 0.08)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(centerX, 40);
-      ctx.lineTo(centerX, height - 40);
+      ctx.moveTo(centerX, 30);
+      ctx.lineTo(centerX, height - 30);
       ctx.stroke();
     }
     
@@ -595,11 +638,55 @@
       });
     }
     
+    // Allow touch / mouse drag to scrub through the text (essential for testing segments)
+    function setupDragScrub() {
+      let isDragging = false;
+      
+      function updateProgressFromPointer(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        const relX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        povProgress = relX;
+        
+        // Force into POV mode while dragging so user can see the segments
+        if (currentMode !== 'pov' && hasTextBitmap) {
+          currentMode = 'pov';
+          updateModeBadge();
+        }
+      }
+      
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        updateProgressFromPointer(e.clientX);
+      });
+      
+      window.addEventListener('mouseup', () => { isDragging = false; });
+      
+      canvas.addEventListener('mousemove', (e) => {
+        if (isDragging) updateProgressFromPointer(e.clientX);
+      });
+      
+      canvas.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        updateProgressFromPointer(e.touches[0].clientX);
+        e.preventDefault();
+      }, { passive: false });
+      
+      canvas.addEventListener('touchmove', (e) => {
+        if (isDragging) {
+          updateProgressFromPointer(e.touches[0].clientX);
+          e.preventDefault();
+        }
+      }, { passive: false });
+      
+      canvas.addEventListener('touchend', () => { isDragging = false; });
+    }
+    
     function init() {
       resize();
       initMatrixDrops();
       updateSliders();
       setupKeyboard();
+      setupDragScrub();
       
       // Initial text
       setTimeout(() => {
@@ -626,7 +713,7 @@
         }
       });
       
-      console.log('%c[POV Text Display] Artifact ready. Enable sensors + wave phone left/right.', 'color:#00aa66');
+      console.log('%c[POV Text Display] Artifact ready. Force POV + drag left/right to see segments.', 'color:#00aa66');
     }
     
     window.onload = init;
