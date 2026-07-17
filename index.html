@@ -155,13 +155,13 @@
     <div class="row" style="gap:12px; align-items:flex-end;">
       <div>
         <label style="font-size:10px; color:#888;">Dot Size</label><br>
-        <input type="range" id="dotSizeSlider" min="4" max="22" step="1" value="12" style="width:110px; accent-color:#00ff9f;">
-        <span id="dotSizeVal" style="font-size:10px;">12</span>
+        <input type="range" id="dotSizeSlider" min="8" max="40" step="1" value="24" style="width:110px; accent-color:#00ff9f;">
+        <span id="dotSizeVal" style="font-size:10px;">24</span>
       </div>
       <div>
         <label style="font-size:10px; color:#888;">Columns</label><br>
-        <input type="range" id="columnsSlider" min="1" max="9" step="1" value="5" style="width:90px; accent-color:#00ff9f;">
-        <span id="columnsVal" style="font-size:10px;">5</span>
+        <input type="range" id="columnsSlider" min="1" max="5" step="1" value="1" style="width:90px; accent-color:#00ff9f;">
+        <span id="columnsVal" style="font-size:10px;">1</span>
       </div>
       <div>
         <label style="font-size:10px; color:#888;">Brightness</label><br>
@@ -171,9 +171,9 @@
     </div>
     
     <div class="info">
-      <b>POV Mode:</b> Wave the phone left ↔ right in a smooth arc (or use Force POV + drag).<br>
-      Bright LED-style segments form the text via persistence of vision.<br>
-      <span style="color:#00aa66;">Still → Matrix rain. Drag left/right on screen to scrub through the text.</span><br>
+      <b>POV Mode:</b> 10 big round dots that flash on/off to form text via persistence of vision.<br>
+      Wave phone left ↔ right, or use <b>Force POV</b> + drag left/right to scrub the text.<br>
+      <span style="color:#00aa66;">When still → Matrix rain fallback.</span><br>
       <span style="color:#ffaa00; font-size:9px;">Debug: rotGamma=<span id="debugRot">0</span> | delta=<span id="debugDelta">0</span></span>
     </div>
   </div>
@@ -224,6 +224,9 @@
     // === DISPLAY STATE ===
     let currentMode = 'matrix'; // 'matrix' or 'pov'
     let povProgress = 0.5;      // 0..1 across the text
+    let isForceMode = false;    // true when user pressed Force POV (auto-animates)
+    let autoSweepSpeed = 0.55;  // medium speed (cycles per second-ish)
+    let autoSweepDir = 1;       // 1 or -1 for back-and-forth
     
     // === POV RENDERING PARAMS ===
     let dotSize = 8;
@@ -294,7 +297,7 @@
     // === TEXT TO BITMAP ===
     // Precomputed binary columns of the text (array of arrays of 0/1)
     let textColumns = [];   // textColumns[x][y] = 0 or 1
-    let ledRows = 24;        // number of vertical LED "segments"
+    let ledRows = 10;        // FIXED: 10 big round dots tall (classic POV style)
     
     function generateTextBitmap() {
       const input = document.getElementById('textInput').value.trim() || "HELLO";
@@ -305,7 +308,7 @@
       
       // Tall text that will fill most of the phone height
       const targetHeight = Math.min(Math.floor(height * 0.78), 480);
-      const fontSizeText = Math.max(36, Math.floor(targetHeight / 2.1));
+      const fontSizeText = Math.max(42, Math.floor(targetHeight / 1.9));
       
       textCtx.font = `900 ${fontSizeText}px "Courier New", "Share Tech Mono", monospace`;
       textCtx.fillStyle = '#ffffff';
@@ -337,9 +340,9 @@
       }
       textCtx.fillText(input, 30, textHeight / 2); // center pass
       
-      // === Precompute binary columns (much faster + cleaner than getImageData every frame) ===
+      // === Precompute binary columns for exactly 10 big dots ===
       textColumns = [];
-      ledRows = Math.max(16, Math.min(32, Math.floor(height / 18))); // adaptive LED rows
+      ledRows = 10; // Fixed: 10 large round dots tall
       
       const imageData = textCtx.getImageData(0, 0, textWidth, textHeight);
       const data = imageData.data;
@@ -358,8 +361,8 @@
             sum += data[idx]; // red channel
             count++;
           }
-          // Higher threshold = cleaner segments (less anti-alias noise)
-          col[row] = (sum / count) > 90 ? 1 : 0;
+          // Higher threshold = cleaner on/off (less anti-alias noise)
+          col[row] = (sum / count) > 85 ? 1 : 0;
         }
         textColumns.push(col);
       }
@@ -381,7 +384,7 @@
     }
     
     function drawPOV() {
-      // Pure black
+      // Pure black background
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, width, height);
       
@@ -396,20 +399,20 @@
       const textX = Math.max(0, Math.min(textColumns.length - 1, Math.floor(povProgress * textColumns.length)));
       
       const centerX = width / 2;
-      const dot = parseFloat(document.getElementById('dotSizeSlider').value) || 10;
-      const cols = parseInt(document.getElementById('columnsSlider').value) || 4;
+      const dot = parseFloat(document.getElementById('dotSizeSlider').value) || 22;
+      const cols = parseInt(document.getElementById('columnsSlider').value) || 1;
       const bright = parseFloat(document.getElementById('brightnessSlider').value) || 1.0;
       
       dotSize = dot;
       numColumns = cols;
       brightness = bright;
       
-      // Vertical spacing of the LED segments
-      const usableHeight = height * 0.82;
+      // Exactly 10 big round dots, evenly spaced down the center
+      const usableHeight = height * 0.78;
       const topOffset = (height - usableHeight) / 2;
-      const rowHeight = usableHeight / ledRows;
+      const spacing = usableHeight / (ledRows - 1); // 10 dots → 9 gaps
       
-      // Draw several adjacent columns for a thicker "wand"
+      // Optional thickness (multiple columns of dots side-by-side)
       const halfCols = Math.floor(numColumns / 2);
       
       for (let c = -halfCols; c <= halfCols; c++) {
@@ -417,36 +420,40 @@
         if (colIdx < 0 || colIdx >= textColumns.length) continue;
         
         const column = textColumns[colIdx];
-        const x = centerX + c * (dotSize * 0.95);
-        
-        // Extremely bright color + strong glow
-        ctx.fillStyle = `rgba(0, 255, 140, ${Math.min(1, brightness + 0.15)})`;
-        ctx.shadowColor = '#00ff9f';
-        ctx.shadowBlur = Math.max(6, dotSize * 0.9);
+        const x = centerX + c * (dotSize * 1.15);
         
         for (let row = 0; row < ledRows; row++) {
-          if (column[row] === 0) continue;
+          const y = topOffset + row * spacing;
+          const isOn = column[row] === 1;
           
-          const y = topOffset + row * rowHeight + rowHeight / 2;
-          
-          // Draw solid vertical segment (looks more like classic POV LEDs)
-          const segmentH = Math.max(dotSize * 0.75, rowHeight * 0.72);
-          
-          ctx.beginPath();
-          // Rounded rectangle / capsule shape for each LED segment
-          const r = Math.min(dotSize / 2, segmentH / 2);
-          ctx.roundRect(x - dotSize / 2, y - segmentH / 2, dotSize, segmentH, r);
-          ctx.fill();
+          if (isOn) {
+            // Bright glowing "on" dots
+            ctx.fillStyle = `rgba(0, 255, 140, ${Math.min(1, brightness)})`;
+            ctx.shadowColor = '#00ff9f';
+            ctx.shadowBlur = Math.max(12, dotSize * 0.9);
+            
+            ctx.beginPath();
+            ctx.arc(x, y, dotSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            // Very dim outline so the 10-dot structure is always visible
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(0, 255, 140, 0.12)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(x, y, dotSize / 2.2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
       }
       
-      // Very subtle center guide
+      // Very subtle guide line
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(0, 255, 159, 0.08)';
+      ctx.strokeStyle = 'rgba(0, 255, 159, 0.07)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(centerX, 30);
-      ctx.lineTo(centerX, height - 30);
+      ctx.moveTo(centerX, 20);
+      ctx.lineTo(centerX, height - 20);
       ctx.stroke();
     }
     
@@ -548,10 +555,17 @@
     function updateModeBadge() {
       const badge = document.getElementById('modeBadge');
       if (currentMode === 'pov') {
-        badge.textContent = 'POV ACTIVE — WAVE PHONE';
-        badge.style.background = 'rgba(255, 200, 0, 0.15)';
-        badge.style.borderColor = '#ffcc00';
-        badge.style.color = '#ffcc00';
+        if (isForceMode) {
+          badge.textContent = 'POV TEST — AUTO SWEEPING';
+          badge.style.background = 'rgba(255, 160, 0, 0.2)';
+          badge.style.borderColor = '#ff9900';
+          badge.style.color = '#ffaa00';
+        } else {
+          badge.textContent = 'POV ACTIVE — WAVE PHONE';
+          badge.style.background = 'rgba(255, 200, 0, 0.15)';
+          badge.style.borderColor = '#ffcc00';
+          badge.style.color = '#ffcc00';
+        }
       } else {
         badge.textContent = 'MATRIX IDLE';
         badge.style.background = 'rgba(0,255,159,0.12)';
@@ -563,8 +577,10 @@
     function toggleMode() {
       if (currentMode === 'matrix') {
         currentMode = 'pov';
+        isForceMode = false;
       } else {
         currentMode = 'matrix';
+        isForceMode = false;
       }
       updateModeBadge();
     }
@@ -574,8 +590,12 @@
         generateTextBitmap();
       }
       currentMode = 'pov';
+      isForceMode = true;
+      povProgress = 0;          // start from the left
+      autoSweepDir = 1;
+      lastMotionTime = Date.now() + 999999; // prevent auto-return to matrix
       updateModeBadge();
-      console.log('%c[POV] Manually forced POV mode for testing', 'color:#ffaa00');
+      console.log('%c[POV] Force POV started — auto-sweeping at medium speed', 'color:#ffaa00');
     }
     
     function updateSliders() {
@@ -602,6 +622,21 @@
     function draw() {
       if (!ctx) return;
       
+      // Auto-sweep animation when in Force POV mode (simulates medium-speed straight line)
+      if (currentMode === 'pov' && isForceMode && hasTextBitmap) {
+        // Medium speed continuous sweep (back and forth)
+        const speed = 0.018; // ~ medium speed
+        povProgress += speed * autoSweepDir;
+        
+        if (povProgress >= 1) {
+          povProgress = 1;
+          autoSweepDir = -1;
+        } else if (povProgress <= 0) {
+          povProgress = 0;
+          autoSweepDir = 1;
+        }
+      }
+      
       if (currentMode === 'pov') {
         drawPOV();
       } else {
@@ -614,8 +649,8 @@
       if (rotEl) rotEl.textContent = debugRotGamma.toFixed(1);
       if (deltaEl) deltaEl.textContent = debugGammaDelta.toFixed(1);
       
-      // Auto return to matrix if no motion for a while
-      if (currentMode === 'pov' && Date.now() - lastMotionTime > 1400) {
+      // Only auto-return to matrix if NOT in force/test mode
+      if (currentMode === 'pov' && !isForceMode && Date.now() - lastMotionTime > 1400) {
         currentMode = 'matrix';
         updateModeBadge();
       }
@@ -633,6 +668,7 @@
         }
         if (e.key === 'Escape' && currentMode === 'pov') {
           currentMode = 'matrix';
+          isForceMode = false;
           updateModeBadge();
         }
       });
