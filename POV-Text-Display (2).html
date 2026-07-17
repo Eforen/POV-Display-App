@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#000000">
+  <title>POV Text • Persistence of Vision Display</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&amp;display=swap');
+    
+    * { margin:0; padding:0; box-sizing:border-box; }
+    
+    body {
+      background:#000;
+      color:#0f0;
+      font-family: 'Share Tech Mono', 'Courier New', monospace;
+      overflow:hidden;
+      touch-action:none;
+      -webkit-user-select:none;
+      user-select:none;
+    }
+    
+    #canvas {
+      display:block;
+      width:100vw;
+      height:100vh;
+    }
+    
+    .header {
+      position:fixed;
+      top:0; left:0; right:0;
+      z-index:200;
+      background:linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+      padding:10px 14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      backdrop-filter:blur(8px);
+    }
+    
+    .header h1 {
+      font-size:15px;
+      letter-spacing:2px;
+      color:#00ff9f;
+    }
+    
+    .status {
+      font-size:10px;
+      padding:2px 8px;
+      border:1px solid #00ff9f;
+      border-radius:2px;
+      background:rgba(0,0,0,0.5);
+    }
+    
+    .panel {
+      position:fixed;
+      bottom:0;
+      left:0;
+      right:0;
+      background:rgba(0,0,0,0.95);
+      border-top:1px solid #00ff9f;
+      padding:12px 14px 16px;
+      z-index:200;
+      font-size:12px;
+      backdrop-filter:blur(10px);
+    }
+    
+    .row {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      margin-bottom:8px;
+      flex-wrap:wrap;
+    }
+    
+    input[type="text"] {
+      flex:1;
+      background:#111;
+      border:1px solid #00ff9f;
+      color:#0f0;
+      font-family:inherit;
+      font-size:14px;
+      padding:8px 10px;
+      border-radius:4px;
+    }
+    
+    button {
+      background:#111;
+      border:1px solid #00ff9f;
+      color:#00ff9f;
+      padding:7px 13px;
+      font-family:inherit;
+      font-size:11px;
+      border-radius:4px;
+      cursor:pointer;
+      transition:all 0.2s;
+    }
+    
+    button:hover { background:#00ff9f; color:#000; }
+    
+    .mode-badge {
+      position:fixed;
+      top:52px;
+      left:12px;
+      font-size:10px;
+      padding:2px 7px;
+      border-radius:3px;
+      z-index:150;
+      background:rgba(0,255,159,0.15);
+      color:#00ff9f;
+      border:1px solid rgba(0,255,159,0.4);
+    }
+    
+    .info {
+      font-size:10px;
+      color:#666;
+      margin-top:6px;
+      line-height:1.3;
+    }
+    
+    .dot {
+      display:inline-block;
+      width:6px;
+      height:6px;
+      background:#00ff9f;
+      border-radius:50%;
+      margin-right:3px;
+      box-shadow:0 0 4px #00ff9f;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>POV TEXT DISPLAY</h1>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <div id="motionStatus" class="status">Motion: Idle</div>
+      <button id="enableMotionBtn" onclick="enableMotionSensors()">Enable Sensors</button>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  
+  <div id="modeBadge" class="mode-badge">MATRIX IDLE</div>
+
+  <div class="panel">
+    <div class="row">
+      <input type="text" id="textInput" value="HELLO WORLD" placeholder="Enter text to display via POV">
+      <button onclick="generateTextBitmap()">Generate</button>
+      <button onclick="toggleMode()">Toggle Mode</button>
+      <button onclick="forcePOVMode()" style="background:#331100; border-color:#ffaa00; color:#ffaa00;">Force POV (test)</button>
+    </div>
+    
+    <div class="row" style="gap:12px; align-items:flex-end;">
+      <div>
+        <label style="font-size:10px; color:#888;">Dot Size</label><br>
+        <input type="range" id="dotSizeSlider" min="3" max="18" step="1" value="8" style="width:110px; accent-color:#00ff9f;">
+        <span id="dotSizeVal" style="font-size:10px;">8</span>
+      </div>
+      <div>
+        <label style="font-size:10px; color:#888;">Columns</label><br>
+        <input type="range" id="columnsSlider" min="1" max="7" step="1" value="3" style="width:90px; accent-color:#00ff9f;">
+        <span id="columnsVal" style="font-size:10px;">3</span>
+      </div>
+      <div>
+        <label style="font-size:10px; color:#888;">Brightness</label><br>
+        <input type="range" id="brightnessSlider" min="0.4" max="1.0" step="0.05" value="0.9" style="width:90px; accent-color:#00ff9f;">
+        <span id="brightnessVal" style="font-size:10px;">0.9</span>
+      </div>
+    </div>
+    
+    <div class="info">
+      <b>POV Mode:</b> Wave the phone left ↔ right in a smooth arc.<br>
+      The app detects motion and shows vertical slices of dots. Persistence of vision makes the text appear in the air.<br>
+      <span style="color:#00aa66;">When still → cute Matrix rain fallback.</span><br>
+      <span style="color:#ffaa00; font-size:9px;">Debug: rotGamma=<span id="debugRot">0</span> | delta=<span id="debugDelta">0</span></span>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { alpha: true });
+    
+    let width = 0, height = 0;
+    let dpr = 1;
+    
+    // === TEXT BITMAP (for POV) ===
+    let textCanvas = null;
+    let textCtx = null;
+    let textWidth = 0;
+    let textHeight = 0;
+    let hasTextBitmap = false;
+    
+    // === MOTION STATE ===
+    let motionEnabled = false;
+    let lastGamma = 0;
+    let lastGammaTime = Date.now();
+    let angularVelocity = 0;
+    let isMoving = false;
+    let lastMotionTime = Date.now();
+    let motionThreshold = 14; // lowered for better compatibility
+    
+    // Debug values shown on screen
+    let debugRotGamma = 0;
+    let debugGammaDelta = 0;
+    
+    // === DISPLAY STATE ===
+    let currentMode = 'matrix'; // 'matrix' or 'pov'
+    let povProgress = 0.5;      // 0..1 across the text
+    
+    // === POV RENDERING PARAMS ===
+    let dotSize = 8;
+    let numColumns = 3;         // how many vertical slices to show at once (thickness)
+    let brightness = 0.9;
+    
+    // === MATRIX RAIN (fallback) ===
+    let drops = [];
+    let columnSpeeds = [];
+    let fontSize = 15;
+    let columns = 0;
+    const MATRIX_CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789$#@%&*';
+    
+    let animationFrame = null;
+    
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      
+      // Re-init matrix if needed
+      const newCols = Math.floor(width / fontSize);
+      if (Math.abs(newCols - columns) > 2) {
+        initMatrixDrops();
+      }
+    }
+    
+    function initMatrixDrops() {
+      columns = Math.max(10, Math.floor(width / fontSize));
+      drops = [];
+      columnSpeeds = [];
+      for (let i = 0; i < columns; i++) {
+        drops[i] = Math.random() * (height / fontSize);
+        columnSpeeds[i] = 0.7 + Math.random() * 0.9;
+      }
+    }
+    
+    function drawMatrix() {
+      // Fade
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillRect(0, 0, width, height);
+      
+      ctx.fillStyle = '#00ff9f';
+      ctx.font = `${fontSize}px 'Courier New', monospace`;
+      ctx.shadowColor = '#00ff9f';
+      ctx.shadowBlur = 3;
+      
+      for (let i = 0; i < columns; i++) {
+        const x = i * fontSize;
+        const y = drops[i] * fontSize;
+        const char = MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)];
+        
+        ctx.fillText(char, x, y);
+        
+        drops[i] += columnSpeeds[i];
+        if (y > height && Math.random() > 0.96) {
+          drops[i] = 0;
+        }
+      }
+    }
+    
+    // === TEXT TO BITMAP ===
+    function generateTextBitmap() {
+      const input = document.getElementById('textInput').value.trim() || "HELLO";
+      
+      // Create offscreen canvas for the text
+      textCanvas = document.createElement('canvas');
+      textCtx = textCanvas.getContext('2d', { alpha: true });
+      
+      // Make the text quite tall so it fills most of the phone height when swept
+      const targetHeight = Math.min(height * 0.85, 520);
+      const fontSizeText = Math.max(28, Math.floor(targetHeight / 2.8));
+      
+      textCtx.font = `bold ${fontSizeText}px 'Courier New', 'Share Tech Mono', monospace`;
+      textCtx.fillStyle = '#ffffff';
+      textCtx.textBaseline = 'middle';
+      
+      // Measure total width needed
+      const metrics = textCtx.measureText(input);
+      textWidth = Math.ceil(metrics.width) + 40; // padding
+      textHeight = Math.floor(targetHeight);
+      
+      textCanvas.width = textWidth;
+      textCanvas.height = textHeight;
+      
+      // Re-apply font after resize
+      textCtx.font = `bold ${fontSizeText}px 'Courier New', 'Share Tech Mono', monospace`;
+      textCtx.fillStyle = '#ffffff';
+      textCtx.textBaseline = 'middle';
+      
+      // Draw centered text
+      textCtx.fillText(input, 20, textHeight / 2);
+      
+      hasTextBitmap = true;
+      
+      // Auto switch to POV if we have good motion
+      if (isMoving) {
+        currentMode = 'pov';
+        updateModeBadge();
+      }
+      
+      // Visual feedback
+      const badge = document.getElementById('modeBadge');
+      badge.style.borderColor = '#ffff00';
+      setTimeout(() => {
+        if (badge) badge.style.borderColor = 'rgba(0,255,159,0.4)';
+      }, 900);
+    }
+    
+    // Get vertical slice of the text as array of brightness values (0 or 1)
+    function getTextColumn(columnX) {
+      if (!hasTextBitmap || !textCtx) return [];
+      
+      const sliceHeight = textHeight;
+      const scaleY = height / sliceHeight;
+      
+      // Sample every few pixels vertically for performance
+      const sampleStep = Math.max(2, Math.floor(4 / (dotSize / 6)));
+      const samples = [];
+      
+      for (let y = 0; y < sliceHeight; y += sampleStep) {
+        const pixel = textCtx.getImageData(Math.floor(columnX), y, 1, 1).data;
+        const brightness = (pixel[0] + pixel[1] + pixel[2]) / 3;
+        samples.push(brightness > 40 ? 1 : 0);
+      }
+      
+      return samples;
+    }
+    
+    function drawPOV() {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, width, height);
+      
+      if (!hasTextBitmap) {
+        // No text yet - show hint
+        ctx.fillStyle = '#00aa66';
+        ctx.font = '14px monospace';
+        ctx.fillText("Enter text above and tap Generate", 30, height/2);
+        return;
+      }
+      
+      // Map povProgress (0..1) to x position in text bitmap
+      const textX = Math.max(0, Math.min(textWidth - 1, Math.floor(povProgress * textWidth)));
+      
+      const centerX = width / 2;
+      const dot = parseFloat(document.getElementById('dotSizeSlider').value);
+      const cols = parseInt(document.getElementById('columnsSlider').value);
+      const bright = parseFloat(document.getElementById('brightnessSlider').value);
+      
+      dotSize = dot;
+      numColumns = cols;
+      brightness = bright;
+      
+      // Draw several vertical columns of dots for thickness
+      const startCol = Math.max(0, textX - Math.floor(numColumns / 2));
+      
+      for (let c = 0; c < numColumns; c++) {
+        const colX = startCol + c;
+        if (colX >= textWidth) continue;
+        
+        const columnData = getTextColumn(colX);
+        if (columnData.length === 0) continue;
+        
+        const offsetX = (c - Math.floor(numColumns / 2)) * (dotSize * 0.85);
+        const x = centerX + offsetX;
+        
+        const scale = height / textHeight;
+        
+        ctx.fillStyle = `rgba(0, 255, 159, ${brightness})`;
+        ctx.shadowColor = '#00ff9f';
+        ctx.shadowBlur = dotSize > 6 ? 4 : 2;
+        
+        for (let i = 0; i < columnData.length; i++) {
+          if (columnData[i] === 0) continue;
+          
+          const y = (i * (dotSize * 0.92) * scale) + (height - textHeight * scale) / 2;
+          
+          // Draw as circle (LED dot)
+          ctx.beginPath();
+          ctx.arc(x, y, dotSize / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      
+      // Subtle center guide line
+      ctx.strokeStyle = 'rgba(0,255,159,0.15)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(centerX, 40);
+      ctx.lineTo(centerX, height - 40);
+      ctx.stroke();
+    }
+    
+    // === MOTION HANDLING ===
+    function enableMotionSensors() {
+      const btn = document.getElementById('enableMotionBtn');
+      const status = document.getElementById('motionStatus');
+      
+      // Try DeviceMotion first (has rotationRate)
+      if (typeof DeviceMotionEvent !== 'undefined' && 
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission().then(perm => {
+          if (perm === 'granted') {
+            window.addEventListener('devicemotion', handleDeviceMotion);
+            window.addEventListener('deviceorientation', handleOrientation);
+            motionEnabled = true;
+            btn.textContent = 'Sensors Active';
+            btn.disabled = true;
+            status.textContent = 'Motion: Listening';
+            status.style.borderColor = '#00ff9f';
+          }
+        }).catch(() => {
+          status.textContent = 'Permission denied';
+        });
+      } else {
+        // Android or no permission API
+        window.addEventListener('devicemotion', handleDeviceMotion);
+        window.addEventListener('deviceorientation', handleOrientation);
+        motionEnabled = true;
+        btn.textContent = 'Sensors Active';
+        btn.disabled = true;
+        status.textContent = 'Motion: Active';
+        status.style.borderColor = '#00ff9f';
+      }
+    }
+    
+    function handleDeviceMotion(event) {
+      const now = Date.now();
+      let velocity = 0;
+      
+      // Preferred signal: rotationRate (best for detecting waving motion)
+      if (event.rotationRate) {
+        const rate = event.rotationRate;
+        velocity = Math.abs(rate.gamma || rate.alpha || rate.beta || 0);
+        debugRotGamma = velocity;
+      }
+      
+      // Fallback: derive velocity from how fast gamma is changing
+      if (window.lastOrientationGamma !== undefined && lastGammaTime) {
+        const dt = (now - lastGammaTime) / 1000;
+        if (dt > 0.008) {
+          const dGamma = Math.abs((window.lastOrientationGamma || 0) - lastGamma);
+          const gammaVel = dGamma / dt;
+          if (velocity < 8 && gammaVel > velocity) {
+            velocity = gammaVel * 0.55; // scale to be comparable
+            debugGammaDelta = gammaVel;
+          }
+        }
+      }
+      
+      angularVelocity = velocity;
+      
+      if (angularVelocity > motionThreshold) {
+        isMoving = true;
+        lastMotionTime = now;
+        
+        if (currentMode !== 'pov' && hasTextBitmap) {
+          currentMode = 'pov';
+          updateModeBadge();
+          console.log('%c[POV] High motion detected → switching to POV mode', 'color:#ffaa00', angularVelocity.toFixed(1));
+        }
+      } else {
+        if (now - lastMotionTime > 800 && currentMode === 'pov') {
+          isMoving = false;
+          currentMode = 'matrix';
+          updateModeBadge();
+        }
+      }
+    }
+    
+    function handleOrientation(event) {
+      if (typeof event.gamma !== 'number') return;
+      
+      const gamma = event.gamma;
+      const now = Date.now();
+      
+      window.lastOrientationGamma = gamma;
+      lastGammaTime = now;
+      
+      // In POV mode: map current tilt angle to horizontal position in the text
+      if (currentMode === 'pov' && hasTextBitmap) {
+        const clamped = Math.max(-60, Math.min(60, gamma));
+        povProgress = (clamped + 60) / 120;
+      }
+      
+      lastGamma = gamma;
+    }
+    
+    function updateModeBadge() {
+      const badge = document.getElementById('modeBadge');
+      if (currentMode === 'pov') {
+        badge.textContent = 'POV ACTIVE — WAVE PHONE';
+        badge.style.background = 'rgba(255, 200, 0, 0.15)';
+        badge.style.borderColor = '#ffcc00';
+        badge.style.color = '#ffcc00';
+      } else {
+        badge.textContent = 'MATRIX IDLE';
+        badge.style.background = 'rgba(0,255,159,0.12)';
+        badge.style.borderColor = 'rgba(0,255,159,0.4)';
+        badge.style.color = '#00ff9f';
+      }
+    }
+    
+    function toggleMode() {
+      if (currentMode === 'matrix') {
+        currentMode = 'pov';
+      } else {
+        currentMode = 'matrix';
+      }
+      updateModeBadge();
+    }
+    
+    function forcePOVMode() {
+      if (!hasTextBitmap) {
+        generateTextBitmap();
+      }
+      currentMode = 'pov';
+      updateModeBadge();
+      console.log('%c[POV] Manually forced POV mode for testing', 'color:#ffaa00');
+    }
+    
+    function updateSliders() {
+      const dotSlider = document.getElementById('dotSizeSlider');
+      const colSlider = document.getElementById('columnsSlider');
+      const brightSlider = document.getElementById('brightnessSlider');
+      
+      dotSlider.oninput = () => {
+        document.getElementById('dotSizeVal').textContent = dotSlider.value;
+      };
+      colSlider.oninput = () => {
+        document.getElementById('columnsVal').textContent = colSlider.value;
+      };
+      brightSlider.oninput = () => {
+        document.getElementById('brightnessVal').textContent = parseFloat(brightSlider.value).toFixed(1);
+      };
+      
+      // Set initial values
+      document.getElementById('dotSizeVal').textContent = dotSlider.value;
+      document.getElementById('columnsVal').textContent = colSlider.value;
+      document.getElementById('brightnessVal').textContent = parseFloat(brightSlider.value).toFixed(1);
+    }
+    
+    function draw() {
+      if (!ctx) return;
+      
+      if (currentMode === 'pov') {
+        drawPOV();
+      } else {
+        drawMatrix();
+      }
+      
+      // Update debug numbers
+      const rotEl = document.getElementById('debugRot');
+      const deltaEl = document.getElementById('debugDelta');
+      if (rotEl) rotEl.textContent = debugRotGamma.toFixed(1);
+      if (deltaEl) deltaEl.textContent = debugGammaDelta.toFixed(1);
+      
+      // Auto return to matrix if no motion for a while
+      if (currentMode === 'pov' && Date.now() - lastMotionTime > 1400) {
+        currentMode = 'matrix';
+        updateModeBadge();
+      }
+      
+      animationFrame = requestAnimationFrame(draw);
+    }
+    
+    function setupKeyboard() {
+      document.addEventListener('keydown', (e) => {
+        if (e.key.toLowerCase() === 'g') {
+          generateTextBitmap();
+        }
+        if (e.key.toLowerCase() === 'm') {
+          toggleMode();
+        }
+        if (e.key === 'Escape' && currentMode === 'pov') {
+          currentMode = 'matrix';
+          updateModeBadge();
+        }
+      });
+    }
+    
+    function init() {
+      resize();
+      initMatrixDrops();
+      updateSliders();
+      setupKeyboard();
+      
+      // Initial text
+      setTimeout(() => {
+        generateTextBitmap();
+      }, 300);
+      
+      // Start animation
+      draw();
+      
+      // Auto hint for sensors on mobile
+      setTimeout(() => {
+        const btn = document.getElementById('enableMotionBtn');
+        if (btn && !motionEnabled && /Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+          btn.style.boxShadow = '0 0 0 3px rgba(0,255,159,0.3)';
+          setTimeout(() => { if (btn) btn.style.boxShadow = 'none'; }, 1800);
+        }
+      }, 2500);
+      
+      window.addEventListener('resize', () => {
+        resize();
+        if (hasTextBitmap) {
+          // Regenerate at new size for better quality
+          setTimeout(generateTextBitmap, 400);
+        }
+      });
+      
+      console.log('%c[POV Text Display] Artifact ready. Enable sensors + wave phone left/right.', 'color:#00aa66');
+    }
+    
+    window.onload = init;
+  </script>
+</body>
+</html>
